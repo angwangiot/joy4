@@ -222,7 +222,6 @@ type MuxCloser interface {
 type Demuxer interface {
 	PacketReader                   // read compressed audio/video packets
 	Streams() ([]CodecData, error) // reads the file header, contains video/audio meta infomations
-	Metadata() (map[string]interface{}, error)
 }
 
 // Demuxer with Close() method
