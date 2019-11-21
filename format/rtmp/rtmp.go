@@ -8,11 +8,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
-	"github.com/nareix/joy4/utils/bits/pio"
-	"github.com/nareix/joy4/av"
-	"github.com/nareix/joy4/av/avutil"
-	"github.com/nareix/joy4/format/flv"
-	"github.com/nareix/joy4/format/flv/flvio"
+	"github.com/go-errors/errors"
+	"github.com/mihail812/joy4/av"
+	"github.com/mihail812/joy4/av/avutil"
+	"github.com/mihail812/joy4/format/flv"
+	"github.com/mihail812/joy4/format/flv/flvio"
+	"github.com/mihail812/joy4/utils/bits/pio"
+	"github.com/sirupsen/logrus"
 	"io"
 	"net"
 	"net/url"
@@ -20,7 +22,12 @@ import (
 	"time"
 )
 
-var Debug bool
+var (
+	Debug        bool
+	MaxChunkSize = 10 * 1024 * 1024
+	ReadDeadlineTimeout = 20 * time.Second
+	WriteDeadlineTimeout = 20 * time.Second
+)
 
 func ParseURL(uri string) (u *url.URL, err error) {
 	if u, err = url.Parse(uri); err != nil {
@@ -58,9 +65,10 @@ type Server struct {
 	HandlePublish func(*Conn)
 	HandlePlay    func(*Conn)
 	HandleConn    func(*Conn)
+	CreateConn    func(net.Conn) *Conn
 }
 
-func (self *Server) handleConn(conn *Conn) (err error) {
+func (self *Server) HandleConnection(conn *Conn) (err error) {
 	if self.HandleConn != nil {
 		self.HandleConn(conn)
 	} else {
@@ -82,7 +90,7 @@ func (self *Server) handleConn(conn *Conn) (err error) {
 	return
 }
 
-func (self *Server) ListenAndServe() (err error) {
+func (self *Server) Listen() (listener *net.TCPListener, err error) {
 	addr := self.Addr
 	if addr == "" {
 		addr = ":1935"
@@ -90,36 +98,55 @@ func (self *Server) ListenAndServe() (err error) {
 	var tcpaddr *net.TCPAddr
 	if tcpaddr, err = net.ResolveTCPAddr("tcp", addr); err != nil {
 		err = fmt.Errorf("rtmp: ListenAndServe: %s", err)
-		return
+		return nil, err
 	}
 
-	var listener *net.TCPListener
 	if listener, err = net.ListenTCP("tcp", tcpaddr); err != nil {
-		return
+		return nil, err
 	}
 
 	if Debug {
 		fmt.Println("rtmp: server: listening on", addr)
 	}
 
+	return listener, nil
+}
+
+func (self *Server) Serve(listener *net.TCPListener) (err error) {
 	for {
-		var netconn net.Conn
-		if netconn, err = listener.Accept(); err != nil {
-			return
+		conn, err := self.Accept(listener)
+		if err != nil {
+			return err
 		}
-
-		if Debug {
-			fmt.Println("rtmp: server: accepted")
-		}
-
-		conn := NewConn(netconn)
-		conn.isserver = true
 		go func() {
-			err := self.handleConn(conn)
+			err := self.HandleConnection(conn)
 			if Debug {
 				fmt.Println("rtmp: server: client closed err:", err)
 			}
 		}()
+	}
+}
+
+func (self *Server) Accept(listener *net.TCPListener) (conn *Conn, err error) {
+	var netconn net.Conn
+	if netconn, err = listener.Accept(); err != nil {
+		return nil, err
+	}
+	if self.CreateConn != nil {
+		conn = self.CreateConn(netconn)
+	} else {
+		conn = NewConn(netconn)
+	}
+	conn.isserver = true
+	return conn, nil
+}
+
+func (self *Server) ListenAndServe() error {
+	if listener, err := self.Listen(); err != nil {
+		return err
+	} else {
+		err = self.Serve(listener)
+		return err
 	}
 }
 
@@ -138,7 +165,7 @@ type Conn struct {
 	URL             *url.URL
 	OnPlayOrPublish func(string, flvio.AMFMap) error
 
-	prober  *flv.Prober
+	Prober  *flv.Prober
 	streams []av.CodecData
 
 	txbytes uint64
@@ -180,6 +207,7 @@ type Conn struct {
 	avtag       flvio.Tag
 
 	eventtype uint16
+	TCUrl     string
 }
 
 type txrxcount struct {
@@ -202,7 +230,7 @@ func (self *txrxcount) Write(p []byte) (int, error) {
 
 func NewConn(netconn net.Conn) *Conn {
 	conn := &Conn{}
-	conn.prober = &flv.Prober{}
+	conn.Prober = &flv.Prober{}
 	conn.netconn = netconn
 	conn.readcsmap = make(map[uint32]*chunkStream)
 	conn.readMaxChunkSize = 128
@@ -295,7 +323,7 @@ func (self *Conn) pollAVTag() (tag flvio.Tag, err error) {
 func (self *Conn) pollMsg() (err error) {
 	self.gotmsg = false
 	self.gotcommand = false
-	self.datamsgvals = nil
+	//self.datamsgvals = nil
 	self.avtag = flvio.Tag{}
 	for {
 		if err = self.readChunk(); err != nil {
@@ -353,15 +381,15 @@ var CodecTypes = flv.CodecTypes
 
 func (self *Conn) writeBasicConf() (err error) {
 	// > SetChunkSize
-	if err = self.writeSetChunkSize(1024 * 1024 * 128); err != nil {
+	if err = self.writeSetChunkSize(MaxChunkSize); err != nil {
 		return
 	}
 	// > WindowAckSize
-	if err = self.writeWindowAckSize(5000000); err != nil {
+	if err = self.writeWindowAckSize(10000000); err != nil {
 		return
 	}
 	// > SetPeerBandwidth
-	if err = self.writeSetPeerBandwidth(5000000, 2); err != nil {
+	if err = self.writeSetPeerBandwidth(10000000, 2); err != nil {
 		return
 	}
 	return
@@ -578,17 +606,17 @@ func (self *Conn) checkCreateStreamResult() (ok bool, avmsgsid uint32) {
 }
 
 func (self *Conn) probe() (err error) {
-	for !self.prober.Probed() {
+	for !self.Prober.Probed() {
 		var tag flvio.Tag
 		if tag, err = self.pollAVTag(); err != nil {
 			return
 		}
-		if err = self.prober.PushTag(tag, int32(self.timestamp)); err != nil {
+		if err = self.Prober.PushTag(tag, int32(self.timestamp)); err != nil {
 			return
 		}
 	}
 
-	self.streams = self.prober.Streams
+	self.streams = self.Prober.Streams
 	self.stage++
 	return
 }
@@ -606,7 +634,7 @@ func (self *Conn) writeConnect(path string) (err error) {
 		flvio.AMFMap{
 			"app":           path,
 			"flashVer":      "MAC 22,0,0,192",
-			"tcUrl":         getTcUrl(self.URL),
+			"tcUrl":         self.TCUrl,
 			"fpad":          false,
 			"capabilities":  15,
 			"audioCodecs":   4071,
@@ -775,8 +803,8 @@ func (self *Conn) ReadPacket() (pkt av.Packet, err error) {
 		return
 	}
 
-	if !self.prober.Empty() {
-		pkt = self.prober.PopPacket()
+	if !self.Prober.Empty() {
+		pkt = self.Prober.PopPacket()
 		return
 	}
 
@@ -787,12 +815,10 @@ func (self *Conn) ReadPacket() (pkt av.Packet, err error) {
 		}
 
 		var ok bool
-		if pkt, ok = self.prober.TagToPacket(tag, int32(self.timestamp)); ok {
+		if pkt, ok = self.Prober.TagToPacket(tag, int32(self.timestamp)); ok {
 			return
 		}
 	}
-
-	return
 }
 
 func (self *Conn) Prepare() (err error) {
@@ -804,10 +830,12 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 		switch self.stage {
 		case 0:
 			if self.isserver {
+				logrus.Debug(fmt.Sprintf("try to handshakeServer %s", self.URL))
 				if err = self.handshakeServer(); err != nil {
 					return
 				}
 			} else {
+				logrus.Debug(fmt.Sprintf("try to handshakeClient %s", self.URL))
 				if err = self.handshakeClient(); err != nil {
 					return
 				}
@@ -815,11 +843,13 @@ func (self *Conn) prepare(stage int, flags int) (err error) {
 
 		case stageHandshakeDone:
 			if self.isserver {
+				logrus.Debug(fmt.Sprintf("try to readConnect %s", self.URL))
 				if err = self.readConnect(); err != nil {
 					return
 				}
 			} else {
 				if flags == prepareReading {
+					logrus.Debug(fmt.Sprintf("try to connectPlay %s", self.URL))
 					if err = self.connectPlay(); err != nil {
 						return
 					}
@@ -850,6 +880,19 @@ func (self *Conn) Streams() (streams []av.CodecData, err error) {
 	}
 	streams = self.streams
 	return
+}
+
+func (self *Conn) Metadata() (map[string]interface{}, error) {
+	if len(self.datamsgvals) < 3 {
+		return nil, errors.New(fmt.Sprintf("bad_metadata: %+v", self.datamsgvals))
+	}
+	if self.datamsgvals[0] != "@setDataFrame" {
+		return nil, errors.New(fmt.Sprintf("wrong_message: %+v", self.datamsgvals))
+	}
+	if self.datamsgvals[1] != "onMetaData" {
+		return nil, errors.New(fmt.Sprintf("metadata_not_found: %+v", self.datamsgvals))
+	}
+	return self.datamsgvals[2].(flvio.AMFMap), nil
 }
 
 func (self *Conn) WritePacket(pkt av.Packet) (err error) {
@@ -936,6 +979,9 @@ func (self *Conn) writeAck(seqnum uint32) (err error) {
 	pio.PutU32BE(b[n:], seqnum)
 	n += 4
 	_, err = self.bufw.Write(b[:n])
+	if err = self.bufw.Flush(); err != nil {
+		return
+	}
 	return
 }
 
@@ -1015,11 +1061,13 @@ func (self *Conn) writeAVTag(tag flvio.Tag, ts int32) (err error) {
 			return
 		}
 	}
-
+	self.netconn.SetWriteDeadline(time.Now().Add(WriteDeadlineTimeout))
+	defer self.netconn.SetWriteDeadline(time.Time{})
 	if _, err = self.bufw.Write(b[:n]); err != nil {
 		return
 	}
 	_, err = self.bufw.Write(data)
+	self.bufw.Flush()
 	return
 }
 
@@ -1099,9 +1147,12 @@ func (self *Conn) flushWrite() (err error) {
 func (self *Conn) readChunk() (err error) {
 	b := self.readbuf
 	n := 0
+	self.netconn.SetReadDeadline(time.Now().Add(ReadDeadlineTimeout))
+	defer self.netconn.SetReadDeadline(time.Time{})
 	if _, err = io.ReadFull(self.bufr, b[:1]); err != nil {
 		return
 	}
+
 	header := b[0]
 	n += 1
 
@@ -1306,7 +1357,7 @@ func (self *Conn) readChunk() (err error) {
 	}
 
 	self.ackn += uint32(n)
-	if self.readAckSize != 0 && self.ackn > self.readAckSize {
+	if self.readAckSize != 0 && self.ackn >= self.readAckSize {
 		if err = self.writeAck(self.ackn); err != nil {
 			return
 		}
@@ -1437,6 +1488,12 @@ func (self *Conn) handleMsg(timestamp uint32, msgsid uint32, msgtypeid uint8, ms
 		}
 		self.readMaxChunkSize = int(pio.U32BE(msgdata))
 		return
+
+	case msgtypeidWindowAckSize:
+		self.readAckSize = pio.U32BE(msgdata)
+		logrus.Info(fmt.Sprintf("RR WindowsAckSize: %d", self.readAckSize))
+		return
+
 	}
 
 	self.gotmsg = true
@@ -1497,7 +1554,7 @@ func hsParse1(p []byte, peerkey []byte, key []byte) (ok bool, digest []byte) {
 	var pos int
 	if pos = hsFindDigest(p, peerkey, 772); pos == -1 {
 		if pos = hsFindDigest(p, peerkey, 8); pos == -1 {
-			return
+			pos = hsCalcDigestPos(p, 8)
 		}
 	}
 	ok = true
@@ -1524,6 +1581,12 @@ func hsCreate2(p []byte, key []byte) {
 }
 
 func (self *Conn) handshakeClient() (err error) {
+	self.netconn.SetWriteDeadline(time.Now().Add(WriteDeadlineTimeout))
+	defer self.netconn.SetWriteDeadline(time.Time{})
+
+	self.netconn.SetReadDeadline(time.Now().Add(ReadDeadlineTimeout))
+	defer self.netconn.SetReadDeadline(time.Time{})
+
 	var random [(1 + 1536*2) * 2]byte
 
 	C0C1C2 := random[:1536*2+1]
@@ -1574,6 +1637,12 @@ func (self *Conn) handshakeClient() (err error) {
 }
 
 func (self *Conn) handshakeServer() (err error) {
+	self.netconn.SetWriteDeadline(time.Now().Add(WriteDeadlineTimeout))
+	defer self.netconn.SetWriteDeadline(time.Time{})
+
+	self.netconn.SetReadDeadline(time.Now().Add(ReadDeadlineTimeout))
+	defer self.netconn.SetReadDeadline(time.Time{})
+
 	var random [(1 + 1536*2) * 2]byte
 
 	C0C1C2 := random[:1536*2+1]

@@ -1,8 +1,8 @@
 package codec
 
 import (
-	"github.com/nareix/joy4/av"
-	"github.com/nareix/joy4/codec/fake"
+	"github.com/mihail812/joy4/av"
+	"github.com/mihail812/joy4/codec/fake"
 	"time"
 )
 
@@ -28,6 +28,10 @@ func (self PCMUCodecData) SampleFormat() av.SampleFormat {
 
 func (self PCMUCodecData) PacketDuration(data []byte) (time.Duration, error) {
 	return time.Duration(len(data)) * time.Second / time.Duration(8000), nil
+}
+
+func (self PCMUCodecData) Profile() string {
+	return "asd"
 }
 
 func NewPCMMulawCodecData() av.AudioCodecData {

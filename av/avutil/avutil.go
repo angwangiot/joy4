@@ -5,7 +5,7 @@ import (
 	"strings"
 	"fmt"
 	"bytes"
-	"github.com/nareix/joy4/av"
+	"github.com/mihail812/joy4/av"
 	"net/url"
 	"os"
 	"path"
@@ -288,6 +288,7 @@ func CopyPackets(dst av.PacketWriter, src av.PacketReader) (err error) {
 			return
 		}
 	}
+	err = nil
 	return
 }
 
