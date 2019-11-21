@@ -1,14 +1,15 @@
 package fake
 
 import (
-	"github.com/nareix/joy4/av"
+	"github.com/mihail812/joy4/av"
 )
 
 type CodecData struct {
-	CodecType_ av.CodecType
-	SampleRate_ int
-	SampleFormat_ av.SampleFormat
+	CodecType_     av.CodecType
+	SampleRate_    int
+	SampleFormat_  av.SampleFormat
 	ChannelLayout_ av.ChannelLayout
+	Profile_        string
 }
 
 func (self CodecData) Type() av.CodecType {
@@ -27,3 +28,6 @@ func (self CodecData) SampleRate() int {
 	return self.SampleRate_
 }
 
+func (self CodecData) Profile() string {
+	return "dsa"
+}
