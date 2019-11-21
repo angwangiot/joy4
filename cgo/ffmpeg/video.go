@@ -14,8 +14,8 @@ import (
 	"fmt"
 	"image"
 	"reflect"
-	"github.com/mihail812/joy4/av"
-	"github.com/mihail812/joy4/codec/h264parser"
+	"github.com/angwangiot/joy4/av"
+	"github.com/angwangiot/joy4/codec/h264parser"
 )
 
 type VideoDecoder struct {

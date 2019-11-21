@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
-	"github.com/mihail812/joy4/av"
-	"github.com/mihail812/joy4/utils/bits"
-	"github.com/mihail812/joy4/utils/bits/pio"
+	"github.com/angwangiot/joy4/av"
+	"github.com/angwangiot/joy4/utils/bits"
+	"github.com/angwangiot/joy4/utils/bits/pio"
 )
 
 const (

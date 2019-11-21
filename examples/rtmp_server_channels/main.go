@@ -2,12 +2,12 @@ package main
 
 import (
 	"fmt"
-	"github.com/mihail812/joy4/av"
-	"github.com/mihail812/joy4/av/avutil"
-	"github.com/mihail812/joy4/av/pktque"
-	"github.com/mihail812/joy4/av/pubsub"
-	"github.com/mihail812/joy4/format"
-	"github.com/mihail812/joy4/format/rtmp"
+	"github.com/angwangiot/joy4/av"
+	"github.com/angwangiot/joy4/av/avutil"
+	"github.com/angwangiot/joy4/av/pktque"
+	"github.com/angwangiot/joy4/av/pubsub"
+	"github.com/angwangiot/joy4/format"
+	"github.com/angwangiot/joy4/format/rtmp"
 	"sync"
 	"time"
 )

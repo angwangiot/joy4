@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"io"
 
-	"github.com/mihail812/joy4/av"
-	"github.com/mihail812/joy4/codec/aacparser"
-	"github.com/mihail812/joy4/codec/h264parser"
-	"github.com/mihail812/joy4/format/mp4/mp4io"
+	"github.com/angwangiot/joy4/av"
+	"github.com/angwangiot/joy4/codec/aacparser"
+	"github.com/angwangiot/joy4/codec/h264parser"
+	"github.com/angwangiot/joy4/format/mp4/mp4io"
 )
 
 type Demuxer struct {

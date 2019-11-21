@@ -1,8 +1,8 @@
 package rtsp
 
 import (
-	"github.com/mihail812/joy4/av"
-	"github.com/mihail812/joy4/format/rtsp/sdp"
+	"github.com/angwangiot/joy4/av"
+	"github.com/angwangiot/joy4/format/rtsp/sdp"
 	"time"
 )
 
