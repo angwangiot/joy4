@@ -3,7 +3,8 @@ package flv
 import (
 	"bufio"
 	"fmt"
-	"github.com/go-errors/errors"
+	"io"
+
 	"github.com/angwangiot/joy4/av"
 	"github.com/angwangiot/joy4/av/avutil"
 	"github.com/angwangiot/joy4/codec"
@@ -12,10 +13,10 @@ import (
 	"github.com/angwangiot/joy4/codec/h264parser"
 	"github.com/angwangiot/joy4/format/flv/flvio"
 	"github.com/angwangiot/joy4/utils/bits/pio"
-	"io"
+	"github.com/go-errors/errors"
 )
 
-var MaxProbePacketCount = 2000
+var MaxProbePacketCount = 20
 
 func NewMetadataByStreams(streams []av.CodecData) (metadata flvio.AMFMap, err error) {
 	metadata = flvio.AMFMap{}
